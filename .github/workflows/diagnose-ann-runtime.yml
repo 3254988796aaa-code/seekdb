@@ -17,7 +17,7 @@ jobs:
       - name: Checkout tested source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: d636e2763eb2ce0a07541329db8c6ddbaf786237
+          ref: 95a25c97d9f6eb83cbc03ef0b72de7bee1a18fc5
           persist-credentials: false
       - name: Install runtime libraries
         run: |
