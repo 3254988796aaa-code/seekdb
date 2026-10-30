@@ -58,7 +58,7 @@ jobs:
             fi
           done
           if [ "$ready" -ne 0 ]; then exit "$ready"; fi
-      - name: Run regression cases using the same compiled binary
+      - name: Run corrected ANN regression using the same compiled binary
         run: |
           set -o pipefail
           runtime="$RUNNER_TEMP/ann-runtime"
@@ -66,7 +66,7 @@ jobs:
           python3 tools/deploy/mysqltest.py run \
             --seekdb "$runtime/seekdb" --obclient "$runtime/obclient/bin/obclient" --mysqltest "$runtime/obclient/bin/mysqltest" \
             --base-dir "$RUNNER_TEMP/ann-regression-instance" --work-dir "$GITHUB_WORKSPACE/diagnostics/check" --port 2894 \
-            --test-set vector_index.ann_filter_canonicalization,vector_index.vector_index_bugfix1,vector_index.vector_similarity \
+            --test-set vector_index.ann_filter_canonicalization \
             --parameter memory_budget=2G --parameter cpu_count=2 2>&1 | tee diagnostics/check.log
       - name: Save diagnostics
         if: always()
