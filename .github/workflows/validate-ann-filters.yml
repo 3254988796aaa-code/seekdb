@@ -17,6 +17,7 @@ jobs:
       RUSTUP_HOME: /tmp/ann-filter-validation/rustup
       CARGO_HOME: /tmp/ann-filter-validation/cargo
       XDG_CACHE_HOME: /tmp/ann-filter-validation/build-cache
+      TELEMETRY_ENABLED: 'false'
       RUSTUP_DIST_SERVER: https://static.rust-lang.org
       RUSTUP_UPDATE_ROOT: https://static.rust-lang.org/rustup
     steps:
@@ -64,8 +65,8 @@ jobs:
             --base-dir "$RUNNER_TEMP/ann-check-instance" \
             --work-dir "$GITHUB_WORKSPACE/evidence/check" --port 2894 \
             --test-set vector_index.ann_filter_canonicalization,vector_index.vector_index_bugfix1,vector_index.vector_similarity \
-            --parameter memory_limit=2G --parameter cpu_count=2 \
-            --parameter enable_telemetry=false 2>&1 | tee evidence/check.log
+            --parameter memory_budget=2G --parameter cpu_count=2 \
+            2>&1 | tee evidence/check.log
 
       - name: Verify the new regression rejects the official old release
         run: |
@@ -78,8 +79,8 @@ jobs:
             --base-dir "$RUNNER_TEMP/ann-old-instance" \
             --work-dir "$GITHUB_WORKSPACE/evidence/old-release" --port 2894 \
             --test-set vector_index.ann_filter_canonicalization \
-            --parameter memory_limit=2G --parameter cpu_count=2 \
-            --parameter enable_telemetry=false > evidence/old-release.log 2>&1
+            --parameter memory_budget=2G --parameter cpu_count=2 \
+            > evidence/old-release.log 2>&1
           result=$?
           set -e
           cat evidence/old-release.log
