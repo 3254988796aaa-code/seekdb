@@ -1,0 +1,88 @@
+# Regression for #1535: ANN filters must use scalar predicate canonicalization.
+CREATE TABLE ann_filter_canon (
+  id INT PRIMARY KEY, category INT, parity VARCHAR(8), embedding VECTOR(2),
+  KEY idx_category(category),
+  VECTOR INDEX idx_vec(embedding) WITH
+    (distance=l2, type=hnsw, lib=vsag, sync_mode=immediate)
+) ORGANIZATION HEAP;
+INSERT INTO ann_filter_canon VALUES
+  (1,1,'even','[1,0]'), (2,1,'odd','[2,0]'),
+  (3,2,'even','[3,0]'), (4,2,'odd','[4,0]'),
+  (5,NULL,'even','[5,0]'), (6,1,NULL,'[6,0]'),
+  (7,NULL,NULL,'[7,0]'), (8,3,'odd','[8,0]');
+SET ob_hnsw_ef_search = 64;
+
+--echo # AND absorption removes the unused parity column from the vector scan.
+EXPLAIN BASIC SELECT id FROM ann_filter_canon
+WHERE category = 1 AND (category = 1 OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+SELECT id FROM ann_filter_canon WHERE category = 1
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+SELECT id FROM ann_filter_canon
+WHERE category = 1 AND (category = 1 OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+
+--echo # The issue's balanced tree contains 1,024 redundant OR branches.
+--disable_query_log
+SET @branches = 'category = 1 OR parity = ''even''';
+let $levels = 10;
+while ($levels)
+{
+  SET @branches = CONCAT('(', @branches, ') AND (', @branches, ')');
+  dec $levels;
+}
+SET @large_sql = CONCAT('SELECT id FROM ann_filter_canon WHERE category = 1 AND (',
+  @branches, ') ORDER BY l2_distance(embedding, ''[0,0]'') APPROXIMATE LIMIT 8');
+SET @large_explain = CONCAT('EXPLAIN BASIC ', @large_sql);
+PREPARE ann_large_explain FROM @large_explain;
+EXECUTE ann_large_explain;
+DEALLOCATE PREPARE ann_large_explain;
+PREPARE ann_large_query FROM @large_sql;
+EXECUTE ann_large_query;
+DEALLOCATE PREPARE ann_large_query;
+--enable_query_log
+
+--echo # A different inner constant must retain the parity filter on a reused SQL shape.
+SELECT id FROM ann_filter_canon
+WHERE category = 1 AND (category = 2 OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+SELECT id FROM ann_filter_canon
+WHERE category = 1 AND (category = 1 OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+
+--echo # The dual absorption form and NULLs preserve three-valued filter semantics.
+EXPLAIN BASIC SELECT id FROM ann_filter_canon
+WHERE category = 1 OR (category = 1 AND parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+SELECT id FROM ann_filter_canon
+WHERE category = 1 OR (category = 1 AND parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+SELECT id FROM ann_filter_canon
+WHERE category IS NULL AND (category IS NULL OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+SELECT id FROM ann_filter_canon
+WHERE category = 1 AND (category = NULL OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+
+--echo # Changing prepared bindings must not reuse an invalid absorbed predicate.
+PREPARE ann_canon_ps FROM 'SELECT id FROM ann_filter_canon WHERE category = ? AND (category = ? OR parity = ?) ORDER BY l2_distance(embedding, \'[0,0]\') APPROXIMATE LIMIT 8';
+SET @outer_category = 1, @inner_category = 1, @parity = 'even';
+EXECUTE ann_canon_ps USING @outer_category, @inner_category, @parity;
+SET @inner_category = 2;
+EXECUTE ann_canon_ps USING @outer_category, @inner_category, @parity;
+SET @inner_category = NULL;
+EXECUTE ann_canon_ps USING @outer_category, @inner_category, @parity;
+SET @outer_category = NULL;
+EXECUTE ann_canon_ps USING @outer_category, @inner_category, @parity;
+DEALLOCATE PREPARE ann_canon_ps;
+
+--echo # NO_REWRITE still leaves the original filter intact.
+EXPLAIN BASIC SELECT /*+ NO_REWRITE */ id FROM ann_filter_canon
+WHERE category = 1 AND (category = 1 OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
+
+--echo # Exact search remains a result control.
+SELECT id FROM ann_filter_canon
+WHERE category = 1 AND (category = 1 OR parity = 'even')
+ORDER BY l2_distance(embedding, '[0,0]') LIMIT 8;
+DROP TABLE ann_filter_canon;
