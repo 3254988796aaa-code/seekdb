@@ -11,6 +11,8 @@ jobs:
   diagnose:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    env:
+      TELEMETRY_ENABLED: 'false'
     steps:
       - name: Checkout tested source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -38,7 +40,7 @@ jobs:
           cat "$runtime/source-head.txt"
           ldd "$runtime/seekdb" | tee diagnostics/ldd.txt
           "$runtime/seekdb" --version
-          python3 tools/deploy/sdb.py start --binary "$runtime/seekdb" --base-dir "$instance" --port 2894 --parameter memory_limit=2G --parameter cpu_count=2 --parameter enable_telemetry=false > diagnostics/start.txt 2>&1
+          python3 tools/deploy/sdb.py start --binary "$runtime/seekdb" --base-dir "$instance" --port 2894 --parameter memory_budget=2G --parameter cpu_count=2 > diagnostics/start.txt 2>&1
           started=$?
           if [ "$started" -eq 0 ]; then
             python3 tools/deploy/sdb.py wait-ready --client "$runtime/obclient/bin/obclient" --base-dir "$instance" --host 127.0.0.1 --port 2894 --user root --timeout 120 > diagnostics/readiness.txt 2>&1
@@ -65,7 +67,7 @@ jobs:
             --seekdb "$runtime/seekdb" --obclient "$runtime/obclient/bin/obclient" --mysqltest "$runtime/obclient/bin/mysqltest" \
             --base-dir "$RUNNER_TEMP/ann-regression-instance" --work-dir "$GITHUB_WORKSPACE/diagnostics/check" --port 2894 \
             --test-set vector_index.ann_filter_canonicalization,vector_index.vector_index_bugfix1,vector_index.vector_similarity \
-            --parameter memory_limit=2G --parameter cpu_count=2 --parameter enable_telemetry=false 2>&1 | tee diagnostics/check.log
+            --parameter memory_budget=2G --parameter cpu_count=2 2>&1 | tee diagnostics/check.log
       - name: Save diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
