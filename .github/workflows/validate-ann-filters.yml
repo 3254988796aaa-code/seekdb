@@ -14,9 +14,9 @@ jobs:
       run:
         shell: bash
     env:
-      RUSTUP_HOME: ${{ runner.temp }}/rustup
-      CARGO_HOME: ${{ runner.temp }}/cargo
-      XDG_CACHE_HOME: ${{ runner.temp }}/build-cache
+      RUSTUP_HOME: /tmp/ann-filter-validation/rustup
+      CARGO_HOME: /tmp/ann-filter-validation/cargo
+      XDG_CACHE_HOME: /tmp/ann-filter-validation/build-cache
       RUSTUP_DIST_SERVER: https://static.rust-lang.org
       RUSTUP_UPDATE_ROOT: https://static.rust-lang.org/rustup
     steps:
