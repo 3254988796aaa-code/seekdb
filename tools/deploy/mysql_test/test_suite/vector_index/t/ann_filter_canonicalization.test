@@ -19,19 +19,19 @@ SET ob_hnsw_ef_search = 64;
 # A one-operator EXPLAIN BASIC has its operator on row 4 and filters on row 8.
 # Check the operator too, so a changed plan shape cannot silently pass.
 let $ann_explain = EXPLAIN BASIC SELECT id FROM ann_filter_canon WHERE category = 1 AND (category = 1 OR parity = 'even') ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
-let $ann_operator = query_get_value($ann_explain, Query Plan, 4);
+let $ann_operator = query_get_value("$ann_explain", "Query Plan", 4);
 if (`SELECT LOCATE('VECTOR INDEX ADAPTIVE SCAN', "$ann_operator") = 0`)
 {
   die Expected an adaptive vector index scan;
 }
-let $ann_filter = query_get_value($ann_explain, Query Plan, 8);
+let $ann_filter = query_get_value("$ann_explain", "Query Plan", 8);
 if (`SELECT LOCATE('parity', "$ann_filter") > 0 OR LOCATE('category', "$ann_filter") = 0`)
 {
   die AND absorption must eliminate the redundant parity filter;
 }
 
 let $ann_no_rewrite = EXPLAIN BASIC SELECT /*+ NO_REWRITE */ id FROM ann_filter_canon WHERE category = 1 AND (category = 1 OR parity = 'even') ORDER BY l2_distance(embedding, '[0,0]') APPROXIMATE LIMIT 8;
-let $ann_filter = query_get_value($ann_no_rewrite, Query Plan, 8);
+let $ann_filter = query_get_value("$ann_no_rewrite", "Query Plan", 8);
 if (`SELECT LOCATE('parity', "$ann_filter") = 0`)
 {
   die NO_REWRITE must retain the original filter;
@@ -47,7 +47,7 @@ while ($ann_levels)
 SET @ann_large_sql = CONCAT('SELECT id FROM ann_filter_canon WHERE category = 1 AND (',
   @ann_branches, ') ORDER BY l2_distance(embedding, ''[0,0]'') APPROXIMATE LIMIT 8');
 let $ann_large_explain = `SELECT CONCAT('EXPLAIN BASIC ', @ann_large_sql)`;
-let $ann_filter = query_get_value($ann_large_explain, Query Plan, 8);
+let $ann_filter = query_get_value("$ann_large_explain", "Query Plan", 8);
 if (`SELECT LOCATE('parity', "$ann_filter") > 0 OR LOCATE('category', "$ann_filter") = 0`)
 {
   die The 1024-branch predicate must have the compact filter;
