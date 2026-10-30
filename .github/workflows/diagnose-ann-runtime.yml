@@ -1,0 +1,75 @@
+name: Diagnose compiled ANN runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout tested source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: d636e2763eb2ce0a07541329db8c6ddbaf786237
+          persist-credentials: false
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libaio1 libnuma1
+          mkdir -p diagnostics "${RUNNER_TEMP}/ann-runtime"
+      - name: Download the already-built runtime
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ann-filter-validation
+          run-id: 41013552115
+          github-token: ${{ github.token }}
+          path: prior-artifact
+      - name: Diagnose startup while preserving logs
+        run: |
+          set -u
+          tar -xzf prior-artifact/evidence/compiled-runtime.tar.gz -C "$RUNNER_TEMP/ann-runtime"
+          runtime="$RUNNER_TEMP/ann-runtime"
+          instance="$RUNNER_TEMP/ann-diagnostic-instance"
+          cat "$runtime/source-head.txt"
+          ldd "$runtime/seekdb" | tee diagnostics/ldd.txt
+          "$runtime/seekdb" --version
+          python3 tools/deploy/sdb.py start --binary "$runtime/seekdb" --base-dir "$instance" --port 2894 --parameter memory_limit=2G --parameter cpu_count=2 --parameter enable_telemetry=false > diagnostics/start.txt 2>&1
+          started=$?
+          if [ "$started" -eq 0 ]; then
+            python3 tools/deploy/sdb.py wait-ready --client "$runtime/obclient/bin/obclient" --base-dir "$instance" --host 127.0.0.1 --port 2894 --user root --timeout 120 > diagnostics/readiness.txt 2>&1
+            ready=$?
+          else
+            ready=$started
+          fi
+          cat diagnostics/start.txt
+          if [ -f diagnostics/readiness.txt ]; then cat diagnostics/readiness.txt; fi
+          find "$instance" -maxdepth 3 -type f -name '*.log' -print || true
+          for log in "$instance/log/console.log" "$instance/log/seekdb.log" "$instance/log/observer.log"; do
+            if [ -f "$log" ]; then
+              echo "Last lines: $log"
+              tail -n 120 "$log" | tee -a diagnostics/startup-logs.txt
+            fi
+          done
+          if [ "$ready" -ne 0 ]; then exit "$ready"; fi
+      - name: Run regression cases using the same compiled binary
+        run: |
+          set -o pipefail
+          runtime="$RUNNER_TEMP/ann-runtime"
+          python3 tools/deploy/sdb.py stop --base-dir "$RUNNER_TEMP/ann-diagnostic-instance"
+          python3 tools/deploy/mysqltest.py run \
+            --seekdb "$runtime/seekdb" --obclient "$runtime/obclient/bin/obclient" --mysqltest "$runtime/obclient/bin/mysqltest" \
+            --base-dir "$RUNNER_TEMP/ann-regression-instance" --work-dir "$GITHUB_WORKSPACE/diagnostics/check" --port 2894 \
+            --test-set vector_index.ann_filter_canonicalization,vector_index.vector_index_bugfix1,vector_index.vector_similarity \
+            --parameter memory_limit=2G --parameter cpu_count=2 --parameter enable_telemetry=false 2>&1 | tee diagnostics/check.log
+      - name: Save diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ann-runtime-diagnostics
+          retention-days: 14
+          path: diagnostics/
